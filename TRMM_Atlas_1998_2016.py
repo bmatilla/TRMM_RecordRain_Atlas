@@ -267,7 +267,7 @@ cf3= plt.pcolormesh(lons, lats, month_of_max, cmap='gist_ncar', norm=norm_mon, t
 plt.savefig(str(select_grid[0])+"deg_monthof"+str(moving_avg_length[0])+"dayrecord_color.png", bbox_inches='tight', pad_inches=0.0)
 
 fig6, ax6 = plt.subplots(figsize=(7,1), dpi=100)
-cb3 = mpl.colorbar.ColorbarBase(ax5, cmap=cmap,
+cb3 = mpl.colorbar.ColorbarBase(ax6, cmap=cmap,
                                 norm=norm_mon,
                                 orientation='horizontal')
 cb3.set_label('Month')
