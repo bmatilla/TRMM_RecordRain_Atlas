@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 from cartopy.mpl.ticker import LongitudeFormatter, LatitudeFormatter
 import cartopy.feature as cfeature
-
+from dask.diagnostics import ProgressBar
 
 #First, build the parser for the moving average length (cdo) and grid to use.
 
@@ -72,7 +72,8 @@ elif select_grid[0] == 1:
 elif select_grid[0] == 2:
     ds= '/data2/bmatilla/TRMM_3B42/V7_PcpOnly/products_3hrtotals/TRMM_2deg_1998_2016.nc'
 elif select_grid[0] == 4:
-    ds= '/data2/bmatilla/TRMM_3B42/V7_PcpOnly/products_3hrtotals/TRMM_4deg_1998_2016.nc'
+    #ds= '/data2/bmatilla/TRMM_3B42/V7_PcpOnly/products_3hrtotals/TRMM_4deg_1998_2016.nc'
+    ds= 'TRMM_4deg_1998_2016.nc'
 else:
     raise ValueError("This grid is not available for use. Current options are 0.25, 1, 2, or 4-degree grids.")
 
@@ -80,24 +81,26 @@ ds_vars= xr.open_dataset(ds, decode_times=True, chunks=2000) #Chunks of 2000 I'v
 
 #Read in the lon,lat, and time variables from dataset.
 
-lons = ds_vars.variables['longitude'][:]
-lats = ds_vars.variables['latitude'][:] 
+lons = ds_vars.variables['lon'][:]
+lats = ds_vars.variables['lat'][:] 
 times = ds_vars.variables['time'][:]
 
 #Run the cdo-based convolution based on the specified moving average length while converting the output to a usable NumPy array.
-pcp_mvavg= cdo.runsum(((8*moving_avg_length[0])+1), input=ds_vars, returnCdf=True).variables['pcp'][:]
-
-print(pcp_mvavg.max(), pcp_mvavg.min())
+print("Dataset loaded. Performing moving average calculation.")
+with ProgressBar():
+    pcp_mvavg= cdo.runsum(((8*moving_avg_length[0])+1), input=ds_vars, returnCdf=True).variables['pcp'][:]
 
 #Calculate the precip max for all grid cells.
 pcp_max= ([])
 pcp_max= pcp_mvavg.max(axis=0)
-print(pcp_max.shape)
+
+print("The minimum precipitation value is " + str(pcp_max.min()) + " mm.")
+print("The maximum precipitation value is " + str(pcp_max.max()) + " mm.")
+
 #Now extract the time of record.
 
 pcp_timmax= ([])
 pcp_timmax= (pcp_mvavg.argmax(axis=0)*3) #Multiply by 3 hours to match TRMM output.
-#pcp_timmax= pcp_timmax.transpose(1,0) #reshape like pcp_max above.
 pcp_timmax_flat= pcp_timmax.flatten() #We need to flatten the time of max array to run it through a loop later in the script.
 
 #Establish arrays for the year, month, day, and hour of record.
@@ -122,8 +125,6 @@ month_of_max= month_of_max.reshape(pcp_max.shape)
 day_of_max= day_of_max.reshape(pcp_max.shape)
 hour_of_max= hour_of_max.reshape(pcp_max.shape)
 
-print(year_of_max.shape, month_of_max.shape, day_of_max.shape, hour_of_max.shape)
-
 #Now, dump the outputs to reusable, reloadable .npy files for later use:
 
 pcp_max.dump("pcp_max_"+str(select_grid[0])+"deg_"+str(moving_avg_length[0])+"day.npy")
@@ -133,6 +134,7 @@ month_of_max.dump("month_of_max_"+str(select_grid[0])+"deg_"+str(moving_avg_leng
 day_of_max.dump("day_of_max_"+str(select_grid[0])+"deg_"+str(moving_avg_length[0])+"day.npy")
 hour_of_max.dump("hour_of_max_"+str(select_grid[0])+"deg_"+str(moving_avg_length[0])+"day.npy")
 
+print("Arrays saved. Moving to create .png and .gif images.")
 #Next, following the procedure from Mapes (2011), we rescale arrays to fit 0-255 byte range. This is to limit the dynamic revolution of the array data to 1/255 of the actual value. Let's set some parameters for rescaling based on our called grid:
 
 #Bit packing for pcp (bp_multi):
@@ -220,11 +222,11 @@ bounds_pcp= np.linspace(0, np.around(pcp_max.max(), decimals=-1), num=15, endpoi
 norm_pcp = mpl.colors.BoundaryNorm(boundaries=bounds_pcp, ncolors=256)
 
 #Now the color table for the year and month. These are more straightforward and we can just take the maximum:
-bounds_yr= np.linspace(year_of_max.min(),year_of_max.max(), num= ((year_of_max.max()-year_of_max.min())+2), endpoint=True)
+bounds_yr= np.linspace(np.around(year_of_max.min(), decimals=0),np.around(year_of_max.max(), decimals=0), num= ((year_of_max.max()-year_of_max.min())+1), endpoint=True)
 norm_yr= mpl.colors.BoundaryNorm(boundaries=bounds_yr, ncolors=256)
 
 #And for the months:
-bounds_mon= np.linspace(month_of_max.min(),month_of_max.max(), num= ((month_of_max.max()+1)), endpoint=True)
+bounds_mon= np.linspace(month_of_max.min(),month_of_max.max(), num= ((month_of_max.max())), endpoint=True)
 norm_mon= mpl.colors.BoundaryNorm(boundaries=bounds_mon, ncolors=256)
 
 cmap= 'gist_ncar'
@@ -243,7 +245,7 @@ cb2 = mpl.colorbar.ColorbarBase(ax2, cmap=cmap,
                                 norm=norm_pcp,
                                 orientation='horizontal')
 cb2.set_label('Precipitation (mm)')
-fig2.savefig(str(select_grid[0])+"_legend_amt_"+str(moving_avg_length[0])+"day.png", bbox_inches='tight', pad_inches=0.0)
+fig2.savefig(str(select_grid[0])+"deg_legend_amt_"+str(moving_avg_length[0])+"day.png", bbox_inches='tight', pad_inches=0.0)
 
 fig3= plt.figure(figsize=(14.4, 4))
 ax3= plt.subplot(projection=crs)
@@ -286,4 +288,5 @@ im8 = Image.open(str(select_grid[0])+"deg_monthof"+str(moving_avg_length[0])+"da
 im8 = im8.resize((1440,400))
 im8.save(str(select_grid[0])+"deg_monthof"+str(moving_avg_length[0])+"dayrecord_color.gif")
 
+print(".png and .gif images created successfully!")
 print("Done")
